@@ -4,9 +4,20 @@ import React, { useState, useEffect } from 'react';
 import { verbs, type Verb } from '@/data/verbs';
 import PronunciationButton from './PronunciationButton';
 
-interface QuizState {
-  currentVerb: Verb;
+type ConjugationForm = 'masu' | 'te' | 'ta' | 'nai';
+type QuestionType = 'translation' | 'conjugation';
+
+interface Question {
+  type: QuestionType;
+  verb: Verb;
+  prompt: string;
   options: string[];
+  correctAnswer: string;
+  conjugationType?: ConjugationForm;
+}
+
+interface QuizState {
+  currentQuestion: Question;
   selectedAnswer: string | null;
   isCorrect: boolean | null;
   questionCount: number;
@@ -19,7 +30,7 @@ function getRandomVerb(): Verb {
   return verbs[Math.floor(Math.random() * verbs.length)];
 }
 
-function generateOptions(correctVerb: Verb): string[] {
+function generateTranslationOptions(correctVerb: Verb): string[] {
   const options = [correctVerb.english];
   const usedIndices = new Set([verbs.indexOf(correctVerb)]);
 
@@ -35,12 +46,74 @@ function generateOptions(correctVerb: Verb): string[] {
   return options.sort(() => Math.random() - 0.5);
 }
 
+function generateConjugationOptions(verb: Verb, conjugationType: ConjugationForm): string[] {
+  const correct = verb.conjugations[conjugationType];
+  const options = [correct];
+
+  // Add wrong form of same verb (confuses learners)
+  const otherForms = (['masu', 'te', 'ta', 'nai'] as ConjugationForm[])
+    .filter(f => f !== conjugationType);
+  const wrongForm = otherForms[Math.floor(Math.random() * otherForms.length)];
+  options.push(verb.conjugations[wrongForm]);
+
+  // Add correct form of 2 different verbs
+  const usedIndices = new Set([verbs.indexOf(verb)]);
+  while (options.length < 4) {
+    const randomIndex = Math.floor(Math.random() * verbs.length);
+    if (!usedIndices.has(randomIndex)) {
+      options.push(verbs[randomIndex].conjugations[conjugationType]);
+      usedIndices.add(randomIndex);
+    }
+  }
+
+  // Shuffle
+  return options.sort(() => Math.random() - 0.5);
+}
+
+function generateTranslationQuestion(verb: Verb): Question {
+  return {
+    type: 'translation',
+    verb,
+    prompt: 'What does this verb mean?',
+    options: generateTranslationOptions(verb),
+    correctAnswer: verb.english
+  };
+}
+
+function generateConjugationQuestion(verb: Verb): Question {
+  const forms: ConjugationForm[] = ['masu', 'te', 'ta', 'nai'];
+  const conjugationType = forms[Math.floor(Math.random() * forms.length)];
+
+  const formLabels: Record<ConjugationForm, string> = {
+    masu: 'masu form (polite)',
+    te: 'te form (connecting)',
+    ta: 'ta form (past)',
+    nai: 'nai form (negative)'
+  };
+
+  return {
+    type: 'conjugation',
+    verb,
+    conjugationType,
+    prompt: `Conjugate to ${formLabels[conjugationType]}`,
+    options: generateConjugationOptions(verb, conjugationType),
+    correctAnswer: verb.conjugations[conjugationType]
+  };
+}
+
+function generateQuestion(): Question {
+  const verb = getRandomVerb();
+  const questionType = Math.random() < 0.5 ? 'translation' : 'conjugation';
+
+  return questionType === 'translation'
+    ? generateTranslationQuestion(verb)
+    : generateConjugationQuestion(verb);
+}
+
 export default function Quiz() {
   const [quizState, setQuizState] = useState<QuizState>(() => {
-    const verb = getRandomVerb();
     return {
-      currentVerb: verb,
-      options: generateOptions(verb),
+      currentQuestion: generateQuestion(),
       selectedAnswer: null,
       isCorrect: null,
       questionCount: 1,
@@ -53,7 +126,7 @@ export default function Quiz() {
   const handleAnswerClick = (answer: string) => {
     if (quizState.selectedAnswer !== null) return; // Already answered
 
-    const correct = answer === quizState.currentVerb.english;
+    const correct = answer === quizState.currentQuestion.correctAnswer;
     setQuizState(prev => ({
       ...prev,
       selectedAnswer: answer,
@@ -65,11 +138,9 @@ export default function Quiz() {
   };
 
   const handleNextQuestion = () => {
-    const verb = getRandomVerb();
     setQuizState(prev => ({
       ...prev,
-      currentVerb: verb,
-      options: generateOptions(verb),
+      currentQuestion: generateQuestion(),
       selectedAnswer: null,
       isCorrect: null,
       questionCount: prev.questionCount + 1,
@@ -83,7 +154,7 @@ export default function Quiz() {
       return `${baseClass} border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 cursor-pointer`;
     }
 
-    if (option === quizState.currentVerb.english) {
+    if (option === quizState.currentQuestion.correctAnswer) {
       return `${baseClass} border-green-500 bg-green-100 text-green-800`;
     }
 
@@ -130,22 +201,22 @@ export default function Quiz() {
           {/* Question */}
           <div className="mb-8">
             <h2 className="text-2xl text-gray-700 mb-4">
-              What does this verb mean?
+              {quizState.currentQuestion.prompt}
             </h2>
             <div className="flex items-center justify-center">
               <div className="text-6xl font-bold text-gray-900">
-                {quizState.currentVerb.japanese}
+                {quizState.currentQuestion.verb.japanese}
               </div>
-              <PronunciationButton text={quizState.currentVerb.japanese} />
+              <PronunciationButton text={quizState.currentQuestion.verb.japanese} />
             </div>
             <div className="text-center mt-3 text-xl text-gray-500">
-              {quizState.currentVerb.romaji}
+              {quizState.currentQuestion.verb.romaji}
             </div>
           </div>
 
           {/* Options */}
           <div className="space-y-3 mb-6">
-            {quizState.options.map((option, index) => (
+            {quizState.currentQuestion.options.map((option, index) => (
               <button
                 key={index}
                 onClick={() => handleAnswerClick(option)}
@@ -172,7 +243,7 @@ export default function Quiz() {
                 </div>
                 {!quizState.isCorrect && (
                   <div className="text-lg">
-                    The correct answer is: {quizState.currentVerb.english}
+                    The correct answer is: {quizState.currentQuestion.correctAnswer}
                   </div>
                 )}
               </div>
